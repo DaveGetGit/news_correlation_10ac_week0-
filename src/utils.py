@@ -1,183 +1,107 @@
-import os
-import sys
-import glob
-import json
-import datetime
-from collections import Counter
-from collections import Counter
-
 import pandas as pd
-from matplotlib import pyplot as plt
-import seaborn as sns
-from nltk.corpus import stopwords
+import nltk
+from nltk.tokenize import word_tokenize
+from nltk import pos_tag, ne_chunk
+from collections import Counter
+from multiprocessing import Pool
+from tqdm import tqdm
 
-
-
-def break_combined_weeks(combined_weeks):
+def find_top_websites(news_data, url_column='url', top_count=10):
     """
-    Breaks combined weeks into separate weeks.
-    
-    Args:
-        combined_weeks: list of tuples of weeks to combine
-        
-    Returns:
-        tuple of lists of weeks to be treated as plus one and minus one
+    Get the top [top_count] websites with the highest article counts.
     """
-    plus_one_week = []
-    minus_one_week = []
+    news_data['domain'] = news_data[url_column].apply(lambda x: x.split('/')[2])
 
-    for week in combined_weeks:
-        if week[0] < week[1]:
-            plus_one_week.append(week[0])
-            minus_one_week.append(week[1])
-        else:
-            minus_one_week.append(week[0])
-            plus_one_week.append(week[1])
+    # Count occurrences of each domain
+    domain_counts = news_data['domain'].value_counts()
 
-    return plus_one_week, minus_one_week
+    top_domains = domain_counts.head(top_count)
+    return top_domains
 
-def get_msgs_df_info(df):
-    msgs_count_dict = df.user.value_counts().to_dict()
-    replies_count_dict = dict(Counter([u for r in df.replies if r != None for u in r]))
-    mentions_count_dict = dict(Counter([u for m in df.mentions if m != None for u in m]))
-    links_count_dict = df.groupby("user").link_count.sum().to_dict()
-    return msgs_count_dict, replies_count_dict, mentions_count_dict, links_count_dict
-
-
-
-def get_messages_dict(msgs):
-    msg_list = {
-            "msg_id":[],
-            "text":[],
-            "attachments":[],
-            "user":[],
-            "mentions":[],
-            "emojis":[],
-            "reactions":[],
-            "replies":[],
-            "replies_to":[],
-            "ts":[],
-            "links":[],
-            "link_count":[]
-            }
-
-
-    for msg in msgs:
-        if "subtype" not in msg:
-            try:
-                msg_list["msg_id"].append(msg["client_msg_id"])
-            except:
-                msg_list["msg_id"].append(None)
-            
-            msg_list["text"].append(msg["text"])
-            msg_list["user"].append(msg["user"])
-            msg_list["ts"].append(msg["ts"])
-            
-            if "reactions" in msg:
-                msg_list["reactions"].append(msg["reactions"])
-            else:
-                msg_list["reactions"].append(None)
-
-            if "parent_user_id" in msg:
-                msg_list["replies_to"].append(msg["ts"])
-            else:
-                msg_list["replies_to"].append(None)
-
-            if "thread_ts" in msg and "reply_users" in msg:
-                msg_list["replies"].append(msg["replies"])
-            else:
-                msg_list["replies"].append(None)
-            
-            if "blocks" in msg:
-                emoji_list = []
-                mention_list = []
-                link_count = 0
-                links = []
-                
-                for blk in msg["blocks"]:
-                    if "elements" in blk:
-                        for elm in blk["elements"]:
-                            if "elements" in elm:
-                                for elm_ in elm["elements"]:
-                                    
-                                    if "type" in elm_:
-                                        if elm_["type"] == "emoji":
-                                            emoji_list.append(elm_["name"])
-
-                                        if elm_["type"] == "user":
-                                            mention_list.append(elm_["user_id"])
-                                        
-                                        if elm_["type"] == "link":
-                                            link_count += 1
-                                            links.append(elm_["url"])
-
-
-                msg_list["emojis"].append(emoji_list)
-                msg_list["mentions"].append(mention_list)
-                msg_list["links"].append(links)
-                msg_list["link_count"].append(link_count)
-            else:
-                msg_list["emojis"].append(None)
-                msg_list["mentions"].append(None)
-                msg_list["links"].append(None)
-                msg_list["link_count"].append(0)
-    
-    return msg_list
-
-def from_msg_get_replies(msg):
-    replies = []
-    if "thread_ts" in msg and "replies" in msg:
-        try:
-            for reply in msg["replies"]:
-                reply["thread_ts"] = msg["thread_ts"]
-                reply["message_id"] = msg["client_msg_id"]
-                replies.append(reply)
-        except:
-            pass
-    return replies
-
-def msgs_to_df(msgs):
-    msg_list = get_messages_dict(msgs)
-    df = pd.DataFrame(msg_list)
-    return df
-
-def process_msgs(msg):
-    '''
-    select important columns from the message
-    '''
-
-    keys = ["client_msg_id", "type", "text", "user", "ts", "team", 
-            "thread_ts", "reply_count", "reply_users_count"]
-    msg_list = {k:msg[k] for k in keys}
-    rply_list = from_msg_get_replies(msg)
-
-    return msg_list, rply_list
-
-def get_messages_from_channel(channel_path):
-    '''
-    get all the messages from a channel        
-    '''
-    channel_json_files = os.listdir(channel_path)
-    channel_msgs = [json.load(open(channel_path + "/" + f)) for f in channel_json_files]
-
-    df = pd.concat([pd.DataFrame(get_messages_dict(msgs)) for msgs in channel_msgs])
-    print(f"Number of messages in channel: {len(df)}")
-    
-    return df
-
-
-def convert_2_timestamp(column, data):
-    """convert from unix time to readable timestamp
-        args: column: columns that needs to be converted to timestamp
-                data: data that has the specified column
+def find_high_traffic_websites(news_data, top_count=10):
     """
-    if column in data.columns.values:
-        timestamp_ = []
-        for time_unix in data[column]:
-            if time_unix == 0:
-                timestamp_.append(0)
-            else:
-                a = datetime.datetime.fromtimestamp(float(time_unix))
-                timestamp_.append(a.strftime('%Y-%m-%d %H:%M:%S'))
-        return timestamp_
-    else: print(f"{column} not in data")
+    Get websites with high reference IPs (assuming the IPs are the number of traffic).
+    """
+    traffic_per_domain = news_data.groupby(['Domain'])['RefIPs'].sum()
+    traffic_per_domain = traffic_per_domain.sort_values(ascending=False)
+    return traffic_per_domain.head(top_count)
+
+def find_countries_with_most_media(news_data, top_count=10):
+    """
+    Get the top countries with the most media outlets.
+    """
+    media_per_country = news_data['Country'].value_counts()
+    media_per_country = media_per_country.sort_values(ascending=False)
+    return media_per_country.head(top_count)
+
+def download_nltk_resources():
+    """
+    Download required NLTK packages.
+    """
+    nltk.download('punkt')
+    nltk.download('averaged_perceptron_tagger')
+    nltk.download('maxent_ne_chunker')
+    nltk.download('words')
+
+count = 0
+
+def extract_countries_from_article_content(article):
+    """
+    Extract countries from the content of each article using NLTK.
+    """
+    index, row = article
+    text = row['content']
+    words = word_tokenize(text)
+    tagged_words = pos_tag(words)
+    named_entities = ne_chunk(tagged_words)
+    countries = [chunk[0] for chunk in list(named_entities) if hasattr(chunk, 'label') and chunk.label() == 'GPE']
+    return countries
+
+def find_popular_articles(articles_data):
+    """
+    Find the most popular articles based on countries mentioned in their content.
+    """
+    print('Downloading NLTK resources ...')
+    download_nltk_resources()
+    print('Finished downloading resources ...')
+    print('Loading data ...')
+    df = articles_data
+    print('Starting processing; this might take a while ...')
+
+    max_rows = len(df)
+    print(f'Max rows: {max_rows}')
+    processed_count = 0
+
+    with Pool() as pool:
+        results = []
+        for countries in tqdm(pool.imap(extract_countries_from_article_content, df.iterrows()), total=len(df)):
+            results.append(countries)
+            processed_count += 1
+            if processed_count >= max_rows:
+                print("Maximum number of rows processed. Stopping pool.")
+                break
+
+    print('Done processing!')
+    all_countries = [country for countries in results for country in countries]
+    country_counts = Counter(all_countries)
+    print(country_counts.most_common(3))
+    return country_counts.most_common(10)
+
+def website_sentiment_counts(data):
+    """
+    Calculate sentiment counts for each website.
+    """
+    sentiment_counts = data.groupby(['source_name', 'title_sentiment']).size().unstack(fill_value=0)
+    return sentiment_counts
+
+def website_sentiment_distribution(data):
+    """
+    Calculate sentiment distribution for each website.
+    """
+    sentiment_counts = data.groupby(['source_name', 'title_sentiment']).size().unstack(fill_value=0)
+    sentiment_counts['Total'] = sentiment_counts.sum(axis=1)
+    sentiment_counts['Mean'] = sentiment_counts[['Positive', 'Neutral', 'Negative']].mean(axis=1)
+    sentiment_counts['Median'] = sentiment_counts[['Positive', 'Neutral', 'Negative']].median(axis=1)
+    print("Sentiment counts with mean and median:")
+    print(sentiment_counts)
+    return sentiment_counts
