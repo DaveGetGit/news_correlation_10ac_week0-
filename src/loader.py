@@ -11,6 +11,7 @@ class NewsDataLoader:
     '''
     A class that will load news related datasets when provided path.
     '''
+    # pylint: disable=R0903
     def __init__(self):
         '''
         data: Dictionary to store loaded data.
