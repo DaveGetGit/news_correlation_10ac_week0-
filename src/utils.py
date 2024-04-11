@@ -17,6 +17,8 @@ import nltk
 from nltk.tokenize import word_tokenize
 from nltk import pos_tag, ne_chunk
 from tqdm import tqdm
+from rake_nltk import Rake
+import numpy as np
 
 def find_top_websites(news_data, url_column='url', top_count=10):
     """
@@ -121,3 +123,42 @@ def website_sentiment_distribution(data):
     print("Sentiment counts with mean and median:")
     print(sentiment_counts)
     return sentiment_counts
+
+
+
+
+
+def keyword_extraction_and_analysis(news_data):
+    """
+    Extract keywords from news data and perform analysis.
+    
+    Args:
+        news_data (DataFrame): The news data to be analyzed.
+    
+    Returns:
+        tuple: A tuple containing two lists of keywords extracted from the title and content of each news item.
+    """
+    # Initialize RAKE
+    rake = Rake()
+
+    # Initialize lists to store keywords
+    title_keywords_list = []
+    content_keywords_list = []
+
+    # Process each news item
+    for index, row in news_data.iterrows():
+        # Extract title and content
+        title_text = row['title']
+        content_text = row['content']
+
+        # Extract keywords for title and content
+        rake.extract_keywords_from_text(title_text)
+        title_keywords = rake.get_ranked_phrases()
+        rake.extract_keywords_from_text(content_text)
+        content_keywords = rake.get_ranked_phrases()
+
+        # Append keywords to lists
+        title_keywords_list.append(title_keywords)
+        content_keywords_list.append(content_keywords)
+
+    return title_keywords_list, content_keywords_list
