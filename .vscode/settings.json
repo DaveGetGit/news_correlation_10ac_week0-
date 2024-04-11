@@ -28,5 +28,18 @@
   "python.condaPath": "${env:HOME}/.local/bin/conda",
   "python.formatting.blackPath": "${env:HOME}/.local/bin/black",
   "python.analysis.typeCheckingMode": "basic",
-  "python.formatting.provider": "black"
+  "python.formatting.provider": "black",
+  "python.testing.pytestArgs": [
+    "tests"
+  ],
+  "python.testing.cwd": "tests",
+  "python.testing.unittestArgs": [
+    "-v",
+    "-s",
+    "./tests",
+    "-p",
+    "test_*.py"
+  ],
+  "python.testing.pytestEnabled": false,
+  "python.testing.unittestEnabled": true
 }
