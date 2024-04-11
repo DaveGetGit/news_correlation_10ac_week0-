@@ -1,3 +1,7 @@
+"""
+This script parses command line arguments for output file, path, channel, and userfile.
+"""
+
 from __future__ import print_function
 import argparse
 
